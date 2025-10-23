@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Password Strength Checker - Go WASM</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        input[type="password"], input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            margin: 10px 0;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        input:focus {
+            outline: none;
+            border-color: #4CAF50;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 5px;
+            display: none;
+        }
+        .result.show {
+            display: block;
+        }
+        .strength {
+            font-size: 24px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        .weak { color: #f44336; }
+        .medium { color: #ff9800; }
+        .strong { color: #4CAF50; }
+        .bar {
+            height: 10px;
+            background: #ddd;
+            border-radius: 5px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .bar-fill {
+            height: 100%;
+            transition: all 0.3s;
+        }
+        .feedback {
+            margin-top: 15px;
+        }
+        .feedback li {
+            color: #f44336;
+            margin: 5px 0;
+        }
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+        .show-pass {
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔒 Password Strength Checker</h1>
+        <p style="color: #666; margin-bottom: 20px;">Powered by Go + WebAssembly</p>
+
+        <div id="loading" class="loading">
+            ⏳ Loading WASM module...
+        </div>
+
+        <div id="app" style="display: none;">
+            <input 
+                type="password" 
+                id="password" 
+                placeholder="Enter your password"
+                autocomplete="off"
+            >
+            
+            <div class="show-pass">
+                <label>
+                    <input type="checkbox" id="showPassword">
+                    Show password
+                </label>
+            </div>
+
+            <div id="result" class="result">
+                <div class="strength" id="strengthLabel">-</div>
+                <div class="bar">
+                    <div class="bar-fill" id="barFill" style="width: 0%; background: #ddd;"></div>
+                </div>
+                <div id="score" style="color: #666;">Score: 0/100</div>
+                
+                <div class="feedback" id="feedbackSection" style="display: none;">
+                    <h3 style="color: #666; font-size: 14px;">Suggestions:</h3>
+                    <ul id="feedbackList"></ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="wasm_exec.js"></script>
+    <script>
+        const go = new Go();
+        
+        WebAssembly.instantiateStreaming(fetch("main.wasm"), go.importObject)
+            .then((result) => {
+                go.run(result.instance);
+                
+                // Hide loading, show app
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('app').style.display = 'block';
+
+                console.log("✅ WASM loaded successfully!");
+
+                // Get elements
+                const passwordInput = document.getElementById('password');
+                const showPasswordCheckbox = document.getElementById('showPassword');
+                const resultDiv = document.getElementById('result');
+                const strengthLabel = document.getElementById('strengthLabel');
+                const barFill = document.getElementById('barFill');
+                const scoreDiv = document.getElementById('score');
+                const feedbackSection = document.getElementById('feedbackSection');
+                const feedbackList = document.getElementById('feedbackList');
+
+                // Show/hide password
+                showPasswordCheckbox.addEventListener('change', (e) => {
+                    passwordInput.type = e.target.checked ? 'text' : 'password';
+                });
+
+                // Check password on input
+                passwordInput.addEventListener('input', (e) => {
+                    const password = e.target.value;
+
+                    if (password.length === 0) {
+                        resultDiv.classList.remove('show');
+                        return;
+                    }
+
+                    // Call Go WASM function
+                    const result = checkPassword(password);
+                    console.log("Result from Go:", result);
+
+                    // Update UI
+                    resultDiv.classList.add('show');
+                    strengthLabel.textContent = result.strength;
+                    scoreDiv.textContent = `Score: ${result.score}/100`;
+                    
+                    // Update bar
+                    barFill.style.width = result.score + '%';
+                    
+                    // Set color based on strength
+                    strengthLabel.className = 'strength ' + result.strength.toLowerCase();
+                    
+                    if (result.strength === 'Weak') {
+                        barFill.style.background = '#f44336';
+                    } else if (result.strength === 'Medium') {
+                        barFill.style.background = '#ff9800';
+                    } else {
+                        barFill.style.background = '#4CAF50';
+                    }
+
+                    // Update feedback
+                    if (result.feedback.length > 0) {
+                        feedbackSection.style.display = 'block';
+                        feedbackList.innerHTML = '';
+                        for (let i = 0; i < result.feedback.length; i++) {
+                            const li = document.createElement('li');
+                            li.textContent = result.feedback[i];
+                            feedbackList.appendChild(li);
+                        }
+                    } else {
+                        feedbackSection.style.display = 'none';
+                    }
+                });
+            })
+            .catch((err) => {
+                console.error('Failed to load WASM:', err);
+                document.getElementById('loading').innerHTML = '❌ Failed to load WASM module<br><small>' + err + '</small>';
+            });
+    </script>
+</body>
+</html>
